@@ -14,4 +14,5 @@ interface MeasurementRepository {
     fun contarMediciones(): Flow<Int>
     suspend fun guardar(medicion: AcelerometroMedicion): Long
     suspend fun eliminarTodas()
+    suspend fun sincronizar()
 }

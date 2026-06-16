@@ -1,5 +1,6 @@
 package com.uade.sensores.data.repository
 
+import android.util.Log
 import com.uade.sensores.data.local.MeasurementDao
 import com.uade.sensores.data.local.toDomain
 import com.uade.sensores.data.local.toEntity
@@ -38,12 +39,13 @@ class MeasurementRepositoryImpl(
      * reenviarla al backend.
      */
     override suspend fun guardar(medicion: AcelerometroMedicion): Long {
-        val idLocal = dao.insertar(medicion.toEntity())
+        val idLocal = dao.guardarOActualizar(medicion.toEntity())
         try {
             api.crear(medicion.toDto())
         } catch (e: Exception) {
             // Log o marcado como "pendiente de sincronizar". No relanzamos.
             // La UI no se rompe porque el dato local ya está.
+            Log.w("Repository", "Sync falló para id=$idLocal: ${e.message}")
         }
         return idLocal
     }
@@ -51,12 +53,13 @@ class MeasurementRepositoryImpl(
     override suspend fun eliminarTodas() = dao.eliminarTodas()
 
     /**
-     * Trae mediciones del backend y las guarda en Room.
+     * Trae mediciones del backend y las guarda/actualiza en Room.
      * Llamar manualmente (por ejemplo, desde un botón "Sincronizar").
-     * Lanza excepción si la red falla → el ViewModel decide cómo reaccionar.
+     * @Upsert garantiza que si la medición ya existe localmente, se actualiza
+     * en vez de fallar por conflicto de id.
      */
-    suspend fun sincronizar() {
+    override suspend fun sincronizar() {
         val remotas = api.obtenerTodas()
-        remotas.forEach { dto -> dao.insertar(dto.toDomain().toEntity()) }
+        remotas.forEach { dto -> dao.guardarOActualizar(dto.toDomain().toEntity()) }
     }
 }

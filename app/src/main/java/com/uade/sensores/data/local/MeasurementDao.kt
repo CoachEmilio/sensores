@@ -2,7 +2,7 @@ package com.uade.sensores.data.local
 
 import androidx.room.Dao
 import androidx.room.Delete
-import androidx.room.Insert
+import androidx.room.Upsert
 import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 
@@ -25,8 +25,8 @@ interface MeasurementDao {
      * suspend → Room la ejecuta en el hilo de IO, no bloquea la UI.
      * Devuelve el id autogenerado (Long) por si el llamador lo necesita.
      */
-    @Insert
-    suspend fun insertar(measurement: Measurement): Long
+    @Upsert
+    suspend fun guardarOActualizar(measurement: Measurement): Long
 
     /**
      * Borra una medición específica.
