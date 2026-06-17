@@ -1,5 +1,6 @@
-package com.uade.sensores.data.local
+package com.uade.sensores.data.local.mappers
 
+import com.uade.sensores.data.local.entities.Measurement
 import com.uade.sensores.model.AcelerometroMedicion
 
 /**

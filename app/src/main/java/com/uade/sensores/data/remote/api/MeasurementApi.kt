@@ -1,5 +1,6 @@
-package com.uade.sensores.data.remote
+package com.uade.sensores.data.remote.api
 
+import com.uade.sensores.data.remote.dto.MeasurementDto
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header

@@ -1,7 +1,8 @@
-package com.uade.sensores.data.remote
+package com.uade.sensores.data.remote.client
 
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.uade.sensores.BuildConfig
+import com.uade.sensores.data.remote.api.MeasurementApi
 import kotlinx.serialization.json.Json
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType

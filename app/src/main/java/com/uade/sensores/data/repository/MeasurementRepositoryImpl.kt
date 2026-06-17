@@ -1,12 +1,12 @@
 package com.uade.sensores.data.repository
 
 import android.util.Log
-import com.uade.sensores.data.local.MeasurementDao
-import com.uade.sensores.data.local.toDomain
-import com.uade.sensores.data.local.toEntity
-import com.uade.sensores.data.remote.MeasurementApi
-import com.uade.sensores.data.remote.toDomain
-import com.uade.sensores.data.remote.toDto
+import com.uade.sensores.data.local.daos.MeasurementDao
+import com.uade.sensores.data.local.mappers.toDomain
+import com.uade.sensores.data.local.mappers.toEntity
+import com.uade.sensores.data.remote.api.MeasurementApi
+import com.uade.sensores.data.remote.dto.toDomain
+import com.uade.sensores.data.remote.dto.toDto
 import com.uade.sensores.model.AcelerometroMedicion
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map

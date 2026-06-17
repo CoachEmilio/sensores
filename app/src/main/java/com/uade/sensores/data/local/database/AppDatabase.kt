@@ -1,9 +1,11 @@
-package com.uade.sensores.data.local
+package com.uade.sensores.data.local.database
 
 import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import com.uade.sensores.data.local.entities.Measurement
+import com.uade.sensores.data.local.daos.MeasurementDao
 
 /**
  * Base de datos Room de la app.

@@ -1,4 +1,4 @@
-package com.uade.sensores.data.local
+package com.uade.sensores.data.local.entities
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity

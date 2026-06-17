@@ -1,9 +1,10 @@
-package com.uade.sensores.data.local
+package com.uade.sensores.data.local.daos
 
 import androidx.room.Dao
 import androidx.room.Delete
-import androidx.room.Upsert
 import androidx.room.Query
+import androidx.room.Upsert
+import com.uade.sensores.data.local.entities.Measurement
 import kotlinx.coroutines.flow.Flow
 
 /**

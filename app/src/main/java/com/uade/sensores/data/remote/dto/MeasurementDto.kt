@@ -1,4 +1,4 @@
-package com.uade.sensores.data.remote
+package com.uade.sensores.data.remote.dto
 
 import com.uade.sensores.model.AcelerometroMedicion
 import kotlinx.serialization.SerialName

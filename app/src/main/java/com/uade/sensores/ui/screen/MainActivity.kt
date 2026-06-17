@@ -21,8 +21,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.uade.sensores.data.local.AppDatabase
-import com.uade.sensores.data.remote.RetrofitClient
+import com.uade.sensores.data.local.database.AppDatabase
+import com.uade.sensores.data.remote.client.RetrofitClient
 import com.uade.sensores.data.repository.MeasurementRepositoryImpl
 import com.uade.sensores.sensor.AcelerometroReader
 import com.uade.sensores.ui.theme.SensoresTheme
