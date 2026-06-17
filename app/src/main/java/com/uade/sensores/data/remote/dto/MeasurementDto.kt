@@ -16,14 +16,3 @@ data class MeasurementDto(
     val z: Float,
     val timestamp: Long
 )
-// Mappers DTO ⇄ Domain
-fun MeasurementDto.toDomain(): AcelerometroMedicion =
-    AcelerometroMedicion(x = x, y = y, z = z, timestamp = timestamp)
-
-fun AcelerometroMedicion.toDto(): MeasurementDto =
-    MeasurementDto(x = x, y = y, z = z, timestamp = timestamp)
-
-/*
-    DTO (Data Transfer Object): how travel the data in the network
-    No sale de la capa de data. Se Traduce a AcelerometroMedicion con mappers.
-*/

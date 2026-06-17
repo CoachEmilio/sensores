@@ -5,8 +5,8 @@ import com.uade.sensores.data.local.daos.MeasurementDao
 import com.uade.sensores.data.local.mappers.toDomain
 import com.uade.sensores.data.local.mappers.toEntity
 import com.uade.sensores.data.remote.api.MeasurementApi
-import com.uade.sensores.data.remote.dto.toDomain
-import com.uade.sensores.data.remote.dto.toDto
+import com.uade.sensores.data.remote.mappers.toDomain
+import com.uade.sensores.data.remote.mappers.toDto
 import com.uade.sensores.model.AcelerometroMedicion
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
