@@ -1,12 +1,12 @@
-# App Android de Control de Calidad Industrial con Sensores, Room y Jetpack Compose
+# Sensores UADE — App Android con Acelerómetro, Room y Sync a Supabase
 
-![Kotlin](https://img.shields.io/badge/Kotlin-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
+![Kotlin](https://img.shields.io/badge/Kotlin-1.9.22-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
 ![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white)
 ![Material 3](https://img.shields.io/badge/Material%203-757575?style=for-the-badge&logo=materialdesign&logoColor=white)
-![Room](https://img.shields.io/badge/Room-4DB33D?style=for-the-badge&logo=sqlite&logoColor=white)
-![SQLite](https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
-![Android](https://img.shields.io/badge/Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)
-![KSP](https://img.shields.io/badge/KSP-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
+![Room](https://img.shields.io/badge/Room-2.6.1-4DB33D?style=for-the-badge&logo=sqlite&logoColor=white)
+![Retrofit](https://img.shields.io/badge/Retrofit-2.11.0-48B983?style=for-the-badge)
+![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)
+![KSP](https://img.shields.io/badge/KSP-1.9.22--1.0.17-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
 ![Coroutines](https://img.shields.io/badge/Coroutines-0095D5?style=for-the-badge&logo=kotlin&logoColor=white)
 ![StateFlow](https://img.shields.io/badge/StateFlow-FF6F00?style=for-the-badge&logo=kotlin&logoColor=white)
 
@@ -14,172 +14,297 @@
 
 ## 1. Objetivo de la Aplicación
 
-Esta aplicación Android modela un caso simple de control de calidad industrial usando sensores del dispositivo. La idea central es usar el teléfono como **inclinómetro**: se apoya sobre una superficie, se calibra una posición base y luego se registran mediciones para determinar si una pieza, molde, soporte o estación de trabajo se encuentra dentro de una tolerancia.
+Esta app Android lee el **acelerómetro** del dispositivo en tiempo real, calcula la **fuerza G** del movimiento, y persiste las mediciones bruscas (umbral 15G) tanto en una base local con **Room** como en un backend remoto con **Supabase**.
 
-La app usa el **acelerómetro** para estimar ángulos:
+La idea es practicar el patrón **offline-first**: la UI siempre lee de Room (funciona sin internet), y cuando hay conectividad, el Repository sincroniza con Supabase en segundo plano.
 
-- **Pitch**: inclinación hacia adelante y hacia atrás.
-- **Roll**: inclinación lateral.
+### Funcionalidades
 
-Con esos valores, la aplicación permite:
+1. Lectura continua del acelerómetro (X, Y, Z) usando `SensorManager` y `SensorEventListener`.
+2. Cálculo de la fuerza G en el dominio: `fuerzaG = √(x² + y² + z²)`.
+3. Persistencia automática de mediciones bruscas (G > 15) en Room.
+4. Historial visible en pantalla con `LazyColumn` reactivo (`Flow<List<…>>`).
+5. Botón **"Sync with Supabase"** que dispara una sincronización bidireccional (PUSH local pendientes + PULL del backend).
+6. Logs de ciclo de vida (`CYCLE`) para estudiar el comportamiento de la Activity.
 
-1. Leer la inclinación actual del dispositivo.
-2. Calibrar una posición base.
-3. Definir una tolerancia de aceptación.
-4. Guardar mediciones localmente con Room.
-5. Mostrar un dashboard con estadísticas básicas.
-6. Ejecutar un análisis local sobre los datos registrados.
-
-El punto importante no es solamente leer un sensor. La app convierte esa lectura física en una **decisión de negocio**: determinar si una medición está dentro o fuera de la tolerancia.
+El sensor es **lifecycle-aware**: la clase `AcelerometroReader` implementa `DefaultLifecycleObserver` y se registra/desregistra solo al ciclo de vida de la Activity (Inversión de Control).
 
 ---
 
-## 2. Componentes Principales
+## 2. Stack Técnico
 
-La aplicación combina varias piezas habituales en una app Android moderna:
-
-- Kotlin
-- Jetpack Compose
-- Material 3 Design
-- Sensores Android
-    - `SensorManager`
-    - `SensorEventListener`
-- Room sobre SQLite
-- DAO
-- Repository
-- ViewModel
-- StateFlow
-- Corrutinas
-- Separación entre UI, lógica, sensor y datos
-- Cálculo local sobre registros históricos
-
-La arquitectura mantiene separadas las responsabilidades. La UI renderiza estado y envía eventos. El ViewModel coordina el estado de pantalla y las operaciones. La lógica de negocio queda aislada. El sensor se encapsula en una clase propia. Room queda detrás de un DAO y un Repository.
+- **Lenguaje:** Kotlin 1.9.22
+- **UI:** Jetpack Compose + Material 3 (Compose puro, sin XML).
+- **Arquitectura:** MVVM con `state down, events up` (UDF).
+- **Persistencia local:** Room 2.6.1 sobre SQLite, con KSP para generación de código.
+- **Cliente HTTP:** Retrofit 2.11 + OkHttp + interceptor de auth para Supabase.
+- **Serialización:** kotlinx.serialization (JSON).
+- **Backend remoto:** Supabase (PostgreSQL con API REST autogenerada).
+- **Asincronía:** Corrutinas + StateFlow + Flow.
+- **Seguridad de credenciales:** `local.properties` + `BuildConfig` (no hardcoded, no en Git).
 
 ---
 
 ## 3. Estructura del Proyecto
 
-La estructura sugerida es la siguiente:
+La estructura está organizada por **tipo de archivo dentro de cada capa** (siguiendo SOLID), de modo que escale a varias tablas sin perder claridad:
 
-app/
-└── kotlin+java
-└── com.uade.sensores
+com.uade.sensores/
+
 ├── data/
-│   ├── AppDatabase.kt
-│   ├── Measurement.kt
-│   ├── MeasurementDao.kt
-│   └── MeasurementRepository.kt
-│
-├── logic/
-│   ├── QualityCalculator.kt
-│   └── QualityViewModel.kt
-│
+
+│   ├── local/
+
+│   │   ├── database/    AppDatabase.kt
+
+│   │   ├── entities/    Measurement.kt
+
+│   │   ├── daos/        MeasurementDao.kt
+
+│   │   └── mappers/     MeasurementMapper.kt
+
+│   ├── remote/
+
+│   │   ├── api/         MeasurementApi.kt
+
+│   │   ├── dto/         MeasurementDto.kt
+
+│   │   ├── client/      RetrofitClient.kt
+
+│   │   └── mappers/     MeasurementRemoteMapper.kt
+
+│   └── repository/
+
+│       ├── MeasurementRepository.kt        (interface)
+
+│       └── MeasurementRepositoryImpl.kt    (impl híbrida offline-first)
+
+├── model/
+
+│   └── AcelerometroMedicion.kt             (modelo de dominio)
+
 ├── sensor/
-│   └── InclinometerSensor.kt
-│
+
+│   └── AcelerometroReader.kt               (lifecycle-aware)
+
 └── ui/
-└── QualityScreen.kt
 
-| Carpeta | Responsabilidad |
-|---------|-----------------|
-| `data/` | Entidad, DAO, base de datos Room y Repository. |
-| `logic/` | Reglas de negocio, cálculo de tolerancia y ViewModel. |
-| `sensor/` | Acceso al acelerómetro y conversión de lecturas en ángulos. |
-| `ui/` | Pantallas y componentes visuales con Jetpack Compose. |
-| raíz | `MainActivity`, inicialización de dependencias y carga de la UI. |
+├── screen/   MainActivity.kt + ScreenSensor (Composable)
 
-Esta estructura evita que la aplicación termine concentrada en una única `Activity` o en un único `@Composable`. También permite cambiar una parte sin arrastrar a las demás: así podemos reemplazar Room, ajustar el cálculo de aceptación o mejorar la UI sin reescribir toda la app.
+├── theme/    SensoresTheme
+
+└── viewmodel/ MainViewModel.kt
+
+
+### Responsabilidades por capa
+
+| Capa | Responsabilidad |
+|---|---|
+| `data/local/` | Persistencia con Room: Entity, DAO, mappers, base. |
+| `data/remote/` | Comunicación HTTP con Supabase: DTO, API, cliente, mappers. |
+| `data/repository/` | Único punto de acceso a datos para el resto de la app. Combina local + remoto. |
+| `model/` | Modelo de dominio puro. No conoce Room ni Retrofit. |
+| `sensor/` | Acceso al acelerómetro físico. |
+| `ui/` | Pantallas, ViewModels, tema visual. |
+
+### Por qué esta estructura
+
+Una alternativa habría sido juntar todo lo de `local/` en una sola carpeta. Funciona bien con 1 tabla, pero con 10+ tablas se vuelve inmanejable. Separar por tipo permite navegar rápido: si busco un DAO, voy a `daos/`. Si busco un Entity, voy a `entities/`. Cada archivo tiene un único motivo para cambiar (SRP).
 
 ---
 
-## 4. Dependencias del Proyecto
+## 4. Arquitectura: patrón offline-first
 
-En el `build.gradle.kts` del módulo `app` se declaran los plugins y dependencias necesarios para Compose, Room, ViewModel y KSP:
+┌─────────────────────────┐
+│    ScreenSensor (UI)    │
+└────────────┬────────────┘
+
+             │ observa StateFlow
+
+┌────────────▼────────────┐
+
+│     MainViewModel       │
+
+└────────────┬────────────┘
+
+             │ depende de la interface
+
+┌────────────▼────────────────────┐
+
+│  MeasurementRepository (iface)  │
+
+└────────────┬────────────────────┘
+
+             │ implementa
+
+┌────────────▼─────────────────────────────┐
+
+│ MeasurementRepositoryImpl (híbrido)      │
+
+│                                          │
+
+│  ┌──────────────┐    ┌──────────────┐   │
+
+│  │ Room (local) │    │ Retrofit→API │   │
+
+│  │ FUENTE DE    │    │ Supabase     │   │
+
+│  │ VERDAD       │    │              │   │
+
+│  └──────────────┘    └──────────────┘   │
+
+└──────────────────────────────────────────┘
+
+### Flujo de escritura (`guardar`)
+
+1. La medición se inserta en Room con `pendingSync = true` (default).
+2. Se intenta hacer POST al backend.
+3. Si el POST es exitoso → `marcarSincronizada(id)` setea `pendingSync = false`.
+4. Si falla la red → queda pendiente para la próxima sincronización. **La app no rompe.**
+
+### Flujo de sincronización (`sincronizar`)
+
+1. **PUSH:** se buscan las mediciones con `pending_sync = 1` y se reintentan subir.
+2. **PULL:** se descarga el catálogo del backend y se inserta en Room con `@Upsert` (evita conflictos por id duplicado).
+
+### Decisiones arquitectónicas claves
+
+- **El Repository expone modelos de dominio**, nunca Entities ni DTOs. Los mappers traducen en la frontera de la capa de datos.
+- **`Flow<List<…>>` para lecturas observables** → la UI se actualiza sola al cambiar la base.
+- **`suspend` para escrituras puntuales** → Room ejecuta en hilo de IO, evita ANR.
+- **`@Upsert` en el DAO** → insert-or-update atómico, ideal para sincronización idempotente.
+- **`@Volatile` + Double-Checked Locking** en el Singleton de `AppDatabase`.
+- **`SharingStarted.WhileSubscribed(5000)`** en los StateFlow del ViewModel → para de emitir cuando nadie observa, ahorra batería.
+
+---
+
+## 5. Dependencias
+
+### `app/build.gradle.kts` — plugins
 
 ```kotlin
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.kotlin.compose)
-    id("com.google.devtools.ksp")
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.kotlin.serialization)
 }
 ```
 
-Los plugins principales son:
-
-- **`android.application`**: permite compilar una app Android.
-- **`kotlin.android`**: habilita Kotlin sobre Android.
-- **`kotlin.compose`**: habilita Jetpack Compose.
-- **`com.google.devtools.ksp`**: permite que Room genere código a partir de anotaciones.
-
-Room necesita procesamiento de símbolos para interpretar anotaciones como `@Entity`, `@Dao` y `@Database`. Ese trabajo lo hace **KSP**.
-
-<!-- TODO: completar con el resto de la explicación del profe sobre qué pasa si KSP no está configurado -->
-
-La configuración base del módulo puede quedar así:
+### Dependencias principales
 
 ```kotlin
-android {
-    namespace = "com.uade.sensores"
-    compileSdk = 35
+// Compose + Material 3 (BOM)
+implementation(platform(libs.androidx.compose.bom))
+implementation(libs.androidx.compose.material3)
+implementation(libs.androidx.activity.compose)
 
-    defaultConfig {
-        applicationId = "com.uade.sensores"
-        minSdk = 26
-        targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
-    }
+// Room (KSP para generación de código)
+implementation(libs.androidx.room.runtime)
+implementation(libs.androidx.room.ktx)
+ksp(libs.androidx.room.compiler)
+
+// Retrofit + JSON serialization
+implementation(libs.retrofit)
+implementation(libs.retrofit.kotlinx.serialization)
+implementation(libs.kotlinx.serialization.json)
+implementation(libs.okhttp.logging)
+```
+
+### Por qué Room necesita KSP
+
+Las anotaciones `@Entity`, `@Dao`, `@Database` son metadata vacía sin un procesador. **KSP las lee en tiempo de compilación** y genera las clases `…_Impl` con el SQL real. Si `ksp(...)` no está configurado, las anotaciones existen pero nadie las procesa → la app crashea en runtime al llamar `Room.databaseBuilder`.
+
+La versión de KSP **debe coincidir con la versión de Kotlin** (`<kotlin>-<ksp>`): en este proyecto, `1.9.22 → 1.9.22-1.0.17`.
+
+---
+
+## 6. Configuración de Supabase
+
+### Secrets en `local.properties`
+
+```properties
+SUPABASE_URL=https://<tu-proyecto>.supabase.co
+SUPABASE_KEY=sb_publishable_xxxxxxxxxxxxxxxxxx
+```
+
+Este archivo **está en `.gitignore`**, nunca viaja a Git.
+
+### Inyección en `BuildConfig` desde `build.gradle.kts`
+
+```kotlin
+defaultConfig {
+    buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
+    buildConfigField("String", "SUPABASE_KEY", "\"$supabaseKey\"")
 }
 ```
 
-<!-- TODO: completar con el bloque dependencies { } del profe (librerías de Room, Compose, ViewModel, etc.) -->
+Esto expone las credenciales como constantes en `BuildConfig.SUPABASE_URL` / `BuildConfig.SUPABASE_KEY`, consumibles desde `RetrofitClient`. **Las keys no aparecen en el código fuente versionado.**
+
+### Tabla `measurements` en Supabase
+
+```sql
+CREATE TABLE measurements (
+    id BIGSERIAL PRIMARY KEY,
+    axis_x REAL NOT NULL,
+    y REAL NOT NULL,
+    z REAL NOT NULL,
+    timestamp BIGINT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_measurements_timestamp ON measurements(timestamp DESC);
+```
+
+Políticas RLS abiertas (inserción y lectura pública para roles `anon` y `authenticated`) — apropiadas para una app de estudio. En producción se restringen al usuario autenticado.
+
+### Por qué `anon`/`publishable` key puede vivir en el cliente
+
+La seguridad real de Supabase la dan **las políticas RLS**, no el secreto de la key (que en apps web cliente es siempre visible). Lo crítico es no exponer la `service_role` key, que sí bypassa RLS.
 
 ---
 
-## 5. Capa Data
+## 7. Logbook técnico
 
-La capa **data** contiene todo lo relacionado con la persistencia local. En esta app se compone de cuatro archivos:
+Problemas reales encontrados durante el desarrollo y cómo se resolvieron:
 
-data/
-├── Measurement.kt
-├── MeasurementDao.kt
-├── AppDatabase.kt
-└── MeasurementRepository.kt
-
-La idea es que Room y SQLite **no queden mezclados con la UI ni con el cálculo de calidad**. El ViewModel no debería armar SQL, abrir bases, ni conocer detalles internos.
-
-<!-- TODO: completar con el detalle de Measurement.kt, MeasurementDao.kt, AppDatabase.kt y MeasurementRepository.kt del profe -->
-
-## 6. Logbook de Arreglos Técnicos (Examen Prep)
-
-Este apartado detalla los problemas críticos encontrados en la configuración de Gradle y el entorno, y cómo se resolvieron para que la app compile y corra. **Guía de supervivencia para el examen.**
-
-### 🛠️ Problemas de Gradle y Dependencias
-
-| Qué estaba roto | Por qué fallaba | Cambio realizado |
-|:---|:---|:---|
-| **Versiones "Fantasma"** | Librerías como `androidx.core` subían solas a la v1.19.0 (requieren AGP 9.1+). | Se usó `resolutionStrategy.force` para clavar versiones en **1.13.1**. |
-| **Crash al iniciar (Startup)** | `NoClassDefFoundError` en `androidx.startup`. Versiones incompatibles entre sí. | Se forzó `androidx.startup:startup-runtime:1.1.1` en el build.gradle. |
-| **Room + KSP** | Incompatibilidad entre el plugin de Kotlin y la versión de KSP. | Se sincronizó **Kotlin 2.1.0** con **KSP 2.1.0-1.0.29**. |
-| **Aviso de BuildConfig** | `buildConfig=true` está depreciado en `gradle.properties`. | Se movió a `build.gradle.kts` dentro de `android { buildFeatures { buildConfig = true } }`. |
-| **Theme Error** | Error `Theme.AppCompat... not found` al compilar recursos. | Se agregó la dependencia `androidx.appcompat:appcompat` (necesaria para temas XML). |
-
-### 💾 Gestión de Memoria y Disco
-
-Si el disco está casi lleno (>95%), Android Studio y Gradle **rompen** porque no pueden escribir archivos temporales.
-
-**Comandos de limpieza (Terminal):**
-1. **Limpiar build del proyecto:** `./gradlew clean` (borra la carpeta `app/build`).
-2. **Parar Daemons trabados:** `./gradlew --stop` (libera RAM de procesos Gradle colgados).
-3. **Limpieza profunda de Caches (Cuidado):**
-   - `rm -rf ~/.gradle/caches` (Borra todas las librerías bajadas, las vuelve a bajar al compilar).
-   - `rm -rf ~/Library/Caches/Google/AndroidStudio*` (Borra archivos temporales del IDE).
-
-### 💡 Tips para el Examen
-* **MinSdk:** Asegurate que sea 24 o 26 según pida la cátedra.
-* **Namespace:** Debe coincidir exactamente con tu package (`com.uade.sensores`).
-* **KSP:** Si Room no genera el código de la DB, revisá que el plugin de KSP coincida **exactamente** con la versión de Kotlin.
-* **Sync:** Si el Sync falla por versiones de Android APIs (v37), bajá el `compileSdk` y `targetSdk` a **35** y forzá las dependencias de `core` a **1.13.1**.
+| Problema | Causa raíz | Solución |
+|---|---|---|
+| `Property delegate must have a getValue...` al usar `by viewModel.medicion` | El ViewModel usaba `LiveData`, incompatible con Compose. | Migrar a `MutableState<T>` (idiomático de Compose). |
+| `Class referenced in the manifest... was not found` | `import kotlin.getValue` inválido inyectado por autocomplete; Activity mezclaba Views y Compose. | Reescribir `MainActivity` en Compose puro, eliminar el import roto. |
+| `InternalSerializationApi` opt-in en MeasurementDto | El plugin de `kotlin-serialization` se aplica pero el IDE marca uso de API interna. | `@OptIn(InternalSerializationApi::class)` sobre la `data class` + `-opt-in=…` en `kotlinOptions.freeCompilerArgs`. |
+| `Expected URL scheme but no scheme found for sb_pub…` | URL y KEY invertidas en `local.properties`. | Invertir las dos líneas + agregar `require(url.startsWith("https://"))` en `RetrofitClient` para fallar temprano con mensaje claro. |
+| `404 / PGRST125: Invalid path specified` con URL duplicada `/rest/v1/rest/v1/…` | El endpoint en `MeasurementApi` y la `BASE_URL` ambos contenían `/rest/v1/`. | Dejar `/rest/v1/` solo en `BASE_URL` (con `trimEnd('/')`), endpoints relativos: `@GET("measurements")`. |
+| Android Studio cancela el `Run` con `CancellationException` | Daemon de Gradle colgado entre sesiones. | `./gradlew --stop` + Invalidate Caches → relanzar. |
+| `Could not resolve` al fijar versiones | Conflictos por `configurations.all { force(...) }`. | Mantener `force` solo para `androidx.core`, `lifecycle-runtime` y `startup-runtime`. |
 
 ---
+
+## 8. Pendientes técnicos
+
+Mejoras identificadas pero aún no implementadas:
+
+1. **Calibración del sensor:** las mediciones registradas con el celular en reposo sobre la mesa marcan G≈10 (correcto: es la gravedad). Hay que restar el vector gravedad para que `fuerzaG` represente movimiento neto, no aceleración total.
+2. **Duplicación en el PULL:** al sincronizar, las mediciones que ya existen localmente se vuelven a insertar como filas nuevas porque el id local y el id remoto son distintos. Solución pendiente: agregar columna `remote_id` separada del `id` local.
+3. **Sincronización automática:** hoy es manual (botón). Puede dispararse al volver la conectividad usando `WorkManager` o un listener de `ConnectivityManager`.
+4. **Estado de error visible en la UI:** hoy los errores de red solo van a Logcat. Convendría exponerlos al usuario como un Snackbar o ícono.
+
+---
+
+## 9. Cómo correr el proyecto
+
+1. Clonar el repo.
+2. Crear `local.properties` con las dos líneas de Supabase (ver sección 6).
+3. Abrir en Android Studio → esperar a que Gradle Sync termine.
+4. Conectar un celular físico o levantar un emulador con sensor virtual.
+5. Build → Run.
+
+Para test rápido: en el celu, mover bruscamente el dispositivo. Las mediciones con G > 15 aparecen en el historial. Tocar **"Sync with Supabase"** → revisar el dashboard de Supabase para confirmar.
+
+---
+
+## 10. Créditos y materiales
+
+- Cátedra: Desarrollo de Aplicaciones I — UADE
+- Apuntes y clase del 28/05/2026 como base conceptual.
+- Construido con la guía de un tutor IA siguiendo el patrón _pregunta/analogía/bajo el capó/riesgo/snippet_ para fijar cada decisión técnica.
