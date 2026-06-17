@@ -111,4 +111,20 @@ interface MeasurementDao {
     // no en el hilo principal".
     // Room en runtime detecta suspend y automáticamente cambia al hilo de IO.
     // No tenés que pensar en threading manual.
+
+
+    /**
+     * Devuelve TODAS las mediciones que todavía NO se sincronizaron con el backend.
+     * Suspend (no Flow) porque la sincronización es un evento puntual, no continuo:
+     * la llamamos UNA vez cuando arranca la sincronización, no la observamos.
+     */
+    @Query("SELECT * FROM measurements WHERE pending_sync = 1 ORDER BY timestamp ASC")
+    suspend fun obtenerPendientes(): List<Measurement>
+
+    /**
+     * Marca una medición como sincronizada (pending_sync = 0).
+     * Se llama después de que el POST al backend respondió OK.
+     */
+    @Query("UPDATE measurements SET pending_sync = 0 WHERE id = :id")
+    suspend fun marcarSincronizada(id: Long)
 }

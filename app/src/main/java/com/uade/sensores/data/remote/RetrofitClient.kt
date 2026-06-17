@@ -1,38 +1,62 @@
 package com.uade.sensores.data.remote
 
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
+import com.uade.sensores.BuildConfig
 import kotlinx.serialization.json.Json
+import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 
 /**
- * Configuración del cliente HTTP. Singleton manual (Retrofit ya internamente
- * comparte conexiones, pero igual conviene una sola instancia).
+ * Cliente Retrofit configurado para Supabase REST API.
  *
- * BASE_URL: cambiala por la URL real de tu backend.
- *   - Emulador Android Studio → "http://10.0.2.2:8080/" (apunta al localhost del host)
- *   - Celular físico en la misma red → "http://IP_DE_TU_PC:8080/"
- *   - Backend en internet → "https://api.tuservidor.com/"
+ * Carga la URL y la key desde BuildConfig (que las lee de local.properties).
+ * Las keys NUNCA están hardcodeadas en el código.
+ *
+ * Cada request lleva 2 headers obligatorios:
+ *  - apikey: identifica el proyecto Supabase.
+ *  - Authorization: Bearer <key>: identifica el rol (publishable = público).
+ *
+ * El interceptor agrega los headers automáticamente a TODAS las llamadas.
  */
 object RetrofitClient {
 
-    private const val BASE_URL = "http://10.0.2.2:8080/"
+    /**
+     * BASE_URL = https://<proyecto>.supabase.co/rest/v1/
+     *
+     * - trimEnd('/') por si SUPABASE_URL viene con barra al final (evita dobles barras).
+     * - require() valida que sea https en runtime para detectar errores de config temprano.
+     */
+    private val BASE_URL: String = run {
+        val url = BuildConfig.SUPABASE_URL.trimEnd('/')
+        require(url.startsWith("https://")) {
+            "SUPABASE_URL debe empezar con https:// — revisá local.properties. Valor actual: '$url'"
+        }
+        "$url/rest/v1/"
+    }
 
-    // Logger: imprime cada request/response en Logcat. Útil para debug,
-    // SACAR en release o filtrar info sensible (tokens, contraseñas).
+    private val supabaseAuthInterceptor = Interceptor { chain ->
+        val request = chain.request().newBuilder()
+            .addHeader("apikey", BuildConfig.SUPABASE_KEY)
+            .addHeader("Authorization", "Bearer ${BuildConfig.SUPABASE_KEY}")
+            .build()
+        chain.proceed(request)
+    }
+
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
         level = HttpLoggingInterceptor.Level.BODY
     }
 
     private val okHttpClient = OkHttpClient.Builder()
+        .addInterceptor(supabaseAuthInterceptor)
         .addInterceptor(loggingInterceptor)
         .build()
 
     private val json = Json {
-        ignoreUnknownKeys = true   // si el server manda campos extra, los ignora
-        coerceInputValues = true   // si manda null donde no debe, usa el default
+        ignoreUnknownKeys = true
+        coerceInputValues = true
     }
 
     val api: MeasurementApi by lazy {

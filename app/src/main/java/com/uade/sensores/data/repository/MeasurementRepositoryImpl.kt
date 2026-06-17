@@ -12,19 +12,19 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 /**
- * Repository híbrido (offline-first):
- *   - La UI SIEMPRE observa Room (Flow). Funciona sin internet.
- *   - sincronizar() trae datos del backend y los guarda en Room.
- *   - guardar() inserta en Room Y, si hay red, también en backend.
- *
- * Si la red falla, NO rompe la app: Room sigue siendo la fuente de verdad para la UI.
+ * Repository híbrido (offline-first) con manejo de pendientes:
+ *   - La UI SIEMPRE observa Room. Funciona sin internet.
+ *   - guardar() inserta en Room como "pendiente"; intenta subir al backend;
+ *     si lo logra, marca la medición como sincronizada.
+ *   - sincronizar() hace 2 cosas:
+ *       1) Sube los pendientes locales que quedaron del modo offline.
+ *       2) Baja del backend lo que el servidor tenga y lo persiste como ya sincronizado.
  */
 class MeasurementRepositoryImpl(
     private val dao: MeasurementDao,
     private val api: MeasurementApi
 ) : MeasurementRepository {
 
-    // Lecturas: Room siempre. La UI no espera red.
     override fun observarMediciones(): Flow<List<AcelerometroMedicion>> =
         dao.observarTodas().map { lista -> lista.map { it.toDomain() } }
 
@@ -34,18 +34,19 @@ class MeasurementRepositoryImpl(
     override fun contarMediciones(): Flow<Int> = dao.contarTodas()
 
     /**
-     * Guarda en local Y remoto. Si el remoto falla (sin internet, server caído),
-     * la medición queda guardada localmente. Una sincronización futura puede
-     * reenviarla al backend.
+     * Flujo:
+     *   1. Insertar en local con pendingSync = true (default).
+     *   2. Intentar POST al backend.
+     *   3a. Si OK → marcar como sincronizada (pendingSync = false).
+     *   3b. Si falla → queda pendiente para el próximo sincronizar().
      */
     override suspend fun guardar(medicion: AcelerometroMedicion): Long {
         val idLocal = dao.guardarOActualizar(medicion.toEntity())
         try {
             api.crear(medicion.toDto())
+            dao.marcarSincronizada(idLocal)
         } catch (e: Exception) {
-            // Log o marcado como "pendiente de sincronizar". No relanzamos.
-            // La UI no se rompe porque el dato local ya está.
-            Log.w("Repository", "Sync falló para id=$idLocal: ${e.message}")
+            Log.w("Repository", "Pendiente de sync: id=$idLocal — ${e.message}")
         }
         return idLocal
     }
@@ -53,13 +54,39 @@ class MeasurementRepositoryImpl(
     override suspend fun eliminarTodas() = dao.eliminarTodas()
 
     /**
-     * Trae mediciones del backend y las guarda/actualiza en Room.
-     * Llamar manualmente (por ejemplo, desde un botón "Sincronizar").
-     * @Upsert garantiza que si la medición ya existe localmente, se actualiza
-     * en vez de fallar por conflicto de id.
+     * Sincronización bidireccional:
+     *   - PUSH: sube todas las mediciones locales pendientes.
+     *   - PULL: baja las que el backend tenga y las persiste como ya sincronizadas.
+     *
+     * Si una llamada individual falla, NO se cancela el resto: la siguiente
+     * sincronización reintentará lo que quedó pendiente.
      */
     override suspend fun sincronizar() {
-        val remotas = api.obtenerTodas()
-        remotas.forEach { dto -> dao.guardarOActualizar(dto.toDomain().toEntity()) }
+
+        // 1) PUSH: subir pendientes locales
+        val pendientes = dao.obtenerPendientes()
+        Log.d("Repository", "Sincronizando ${pendientes.size} pendientes")
+
+        pendientes.forEach { entity ->
+            try {
+                api.crear(entity.toDomain().toDto())
+                dao.marcarSincronizada(entity.id)
+            } catch (e: Exception) {
+                Log.w("Repository", "No pude subir id=${entity.id}: ${e.message}")
+                // El forEach continúa con el siguiente, no cancela todo.
+            }
+        }
+
+        // 2) PULL: bajar nuevas del backend
+        try {
+            val remotas = api.obtenerTodas()
+            remotas.forEach { dto ->
+                // Las que vienen del backend ya están "sincronizadas" por definición.
+                val entity = dto.toDomain().toEntity().copy(pendingSync = false)
+                dao.guardarOActualizar(entity)
+            }
+        } catch (e: Exception) {
+            Log.w("Repository", "Pull falló: ${e.message}")
+        }
     }
 }

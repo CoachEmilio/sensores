@@ -1,5 +1,6 @@
 package com.uade.sensores.ui.viewmodel
 
+import android.util.Log
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
@@ -16,11 +17,11 @@ class MainViewModel(
     private val repository: MeasurementRepository
 ) : ViewModel() {
 
-    // Estado actual del sensor (live, no persisted)
+    // Live sensor state (not persisted)
     private val _measure = mutableStateOf(AcelerometroMedicion(0f, 0f, 0f))
     val measure: State<AcelerometroMedicion> = _measure
 
-    // Historical registration fo data in Room, expose like StateFlow for Compose
+    // Persisted history from Room, exposed as StateFlow for Compose
     val historical: StateFlow<List<AcelerometroMedicion>> =
         repository.observarMediciones().stateIn(
             scope = viewModelScope,
@@ -37,8 +38,7 @@ class MainViewModel(
 
     fun onNewMeasure(m: AcelerometroMedicion) {
         _measure.value = m
-        // Solo persist the strong measure for not fill the base.
-        // If you want to save al, change IF
+        // Persist only strong measurements to avoid flooding the database.
         if (m.esBrusco) {
             viewModelScope.launch { repository.guardar(m) }
         }
@@ -49,8 +49,24 @@ class MainViewModel(
     }
 
     /**
-     * Factory necessary because MainViewModel have a constructor with parameters.
-     * without factory, ViewModelProvider do not know how to create instances.
+     * Triggers a sync with the Supabase backend:
+     *   - Uploads pending local measurements (those not yet sent).
+     *   - Downloads everything stored in the backend and persists it locally.
+     */
+    fun syncWithBackend() {
+        viewModelScope.launch {
+            try {
+                repository.sincronizar()
+                Log.d("Sync", "Sync OK")
+            } catch (e: Exception) {
+                Log.e("Sync", "Error: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Factory necessary because MainViewModel has a constructor with parameters.
+     * Without factory, ViewModelProvider does not know how to create instances.
      */
     class Factory(
         private val repository: MeasurementRepository
