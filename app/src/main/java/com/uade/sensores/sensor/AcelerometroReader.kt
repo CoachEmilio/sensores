@@ -10,25 +10,48 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import com.uade.sensores.model.AcelerometroMedicion
 
-// Se diseña con SensorEventListener porque los recursos en móviles son limitados (batería y CPU)
-// El modelo push permite que el sistema notifique los cambios mediante callbacks (Sensor → App)
-// evitando que la app bloquee el hilo principal con consultas constantes e inútiles al hardware
-
+/**
+ * Lector del acelerómetro con calibración por software (filtro pasa-altos).
+ *
+ * Como no todos los dispositivos exponen TYPE_LINEAR_ACCELERATION (requiere giroscopio),
+ * usamos TYPE_ACCELEROMETER y le restamos la gravedad nosotros mismos con un filtro
+ * pasa-altos clásico: estimamos la gravedad como un promedio de baja frecuencia
+ * y la restamos al valor crudo. Lo que queda es la aceleración lineal.
+ *
+ * Esta es la forma estándar de implementar el LINEAR_ACCELERATION cuando el sistema
+ * no lo provee.
+ */
 class AcelerometroReader(
     context: Context,
     private val onMedicion: (AcelerometroMedicion) -> Unit
 ) : DefaultLifecycleObserver, SensorEventListener {
 
-    // applicationContext: NUNCA guardamos el Context de la Activity (evita leaks)
     private val sensorManager =
         context.applicationContext.getSystemService(Context.SENSOR_SERVICE) as SensorManager
 
+    // Usamos el acelerómetro crudo y filtramos la gravedad por software.
     private val acelerometro: Sensor? =
-        sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER).also {
+            Log.d("SENSOR", "Sensor inicializado: ${it?.name ?: "ninguno"}")
+        }
 
-    // El control se INVIERTE: el componente se suscribe y libera SOLO
+    /**
+     * Gravedad estimada (componente lenta del acelerómetro).
+     * Se actualiza con un filtro pasa-bajos: arranca en 0 y converge al valor real
+     * en pocos eventos (~50ms con SENSOR_DELAY_UI).
+     */
+    private val gravedad = FloatArray(3)
+
+    /**
+     * Constante del filtro: cuánto del valor anterior conservar.
+     *  - α alto (0.9) → gravedad muy lenta, captura solo cambios muy graduales.
+     *  - α bajo (0.5) → gravedad reactiva, deja pasar menos movimiento.
+     *  0.8 es el valor que recomienda Google en la documentación oficial.
+     */
+    private val alpha = 0.8f
+
     override fun onResume(owner: LifecycleOwner) {
-        val sensor = acelerometro ?: return  // Elvis: sin acelerómetro, no hago nada
+        val sensor = acelerometro ?: return
         sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_UI)
         Log.d("SENSOR", "onResume ► registerListener (auto)")
     }
@@ -37,16 +60,21 @@ class AcelerometroReader(
         sensorManager.unregisterListener(this)
         Log.d("SENSOR", "onPause ► unregisterListener (auto)")
     }
-    // (b) Dónde desuscribir y justificación por Simetría
-    // Debe desuscribirse utilizando el metodo unregisterListener
-    // Si registró el listener en onCreate, siguiendo la Regla de Simetría,
-    // el lugar técnico para hacerlo es el onDestroy (su contraparte de existencia)
-    // Sin embargo, la recomendación arquitectónica para sensores es usar el par onStart / onStop o onResume / onPause
 
-    // El sensor nos habla a NOSOTROS (push)
     override fun onSensorChanged(event: SensorEvent?) {
         val e = event ?: return
-        onMedicion(AcelerometroMedicion(e.values[0], e.values[1], e.values[2]))
+
+        // 1) Actualizamos la estimación de gravedad (filtro pasa-bajos).
+        gravedad[0] = alpha * gravedad[0] + (1 - alpha) * e.values[0]
+        gravedad[1] = alpha * gravedad[1] + (1 - alpha) * e.values[1]
+        gravedad[2] = alpha * gravedad[2] + (1 - alpha) * e.values[2]
+
+        // 2) Restamos la gravedad al valor crudo → nos queda la aceleración lineal.
+        val linealX = e.values[0] - gravedad[0]
+        val linealY = e.values[1] - gravedad[1]
+        val linealZ = e.values[2] - gravedad[2]
+
+        onMedicion(AcelerometroMedicion(linealX, linealY, linealZ))
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
