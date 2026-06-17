@@ -27,6 +27,7 @@ import com.uade.sensores.data.repository.MeasurementRepositoryImpl
 import com.uade.sensores.sensor.AcelerometroReader
 import com.uade.sensores.ui.theme.SensoresTheme
 import com.uade.sensores.ui.viewmodel.MainViewModel
+import androidx.compose.material3.ButtonDefaults
 
 class MainActivity : ComponentActivity() {
 
@@ -106,6 +107,17 @@ fun ScreenSensor(
             modifier = Modifier.padding(bottom = 8.dp)
         ) {
             Text("Sync with Supabase")
+        }
+
+        Button(
+            onClick = { viewModel.cleanHistory() },
+            modifier = Modifier.padding(bottom = 8.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer
+            )
+        ) {
+            Text("Clean local history")
         }
 
         Button(
