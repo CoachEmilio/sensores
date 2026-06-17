@@ -14,18 +14,20 @@
 
 ## 1. Objetivo de la Aplicación
 
-Esta app Android lee el **acelerómetro** del dispositivo en tiempo real, calcula la **fuerza G** del movimiento, y persiste las mediciones bruscas (umbral 15G) tanto en una base local con **Room** como en un backend remoto con **Supabase**.
+Esta app Android lee el **acelerómetro** del dispositivo en tiempo real, calcula la **fuerza G** del movimiento neto (sin gravedad), y persiste las mediciones bruscas (umbral 15) tanto en una base local con **Room** como en un backend remoto con **Supabase**.
 
 La idea es practicar el patrón **offline-first**: la UI siempre lee de Room (funciona sin internet), y cuando hay conectividad, el Repository sincroniza con Supabase en segundo plano.
 
 ### Funcionalidades
 
 1. Lectura continua del acelerómetro (X, Y, Z) usando `SensorManager` y `SensorEventListener`.
-2. Cálculo de la fuerza G en el dominio: `fuerzaG = √(x² + y² + z²)`.
-3. Persistencia automática de mediciones bruscas (G > 15) en Room.
-4. Historial visible en pantalla con `LazyColumn` reactivo (`Flow<List<…>>`).
-5. Botón **"Sync with Supabase"** que dispara una sincronización bidireccional (PUSH local pendientes + PULL del backend).
-6. Logs de ciclo de vida (`CYCLE`) para estudiar el comportamiento de la Activity.
+2. Filtro pasa-altos por software para descontar la gravedad, ya que el dispositivo de prueba (Moto E20) no expone `TYPE_LINEAR_ACCELERATION` (no tiene giroscopio).
+3. Cálculo de la fuerza G en el dominio: `fuerzaG = √(x² + y² + z²)` sobre la aceleración lineal filtrada.
+4. Persistencia automática de mediciones bruscas (G > 15) en Room.
+5. Historial visible en pantalla con `LazyColumn` reactivo (`Flow<List<…>>`).
+6. Botón **"Sync with Supabase"** que dispara una sincronización bidireccional (PUSH de pendientes locales + PULL del backend).
+7. Botón **"Clean local history"** para borrar el historial de Room sin afectar el backend.
+8. Logs de ciclo de vida (`CYCLE`) para estudiar el comportamiento de la Activity.
 
 El sensor es **lifecycle-aware**: la clase `AcelerometroReader` implementa `DefaultLifecycleObserver` y se registra/desregistra solo al ciclo de vida de la Activity (Inversión de Control).
 
@@ -34,14 +36,14 @@ El sensor es **lifecycle-aware**: la clase `AcelerometroReader` implementa `Defa
 ## 2. Stack Técnico
 
 - **Lenguaje:** Kotlin 1.9.22
-- **UI:** Jetpack Compose + Material 3 (Compose puro, sin XML).
-- **Arquitectura:** MVVM con `state down, events up` (UDF).
-- **Persistencia local:** Room 2.6.1 sobre SQLite, con KSP para generación de código.
-- **Cliente HTTP:** Retrofit 2.11 + OkHttp + interceptor de auth para Supabase.
-- **Serialización:** kotlinx.serialization (JSON).
-- **Backend remoto:** Supabase (PostgreSQL con API REST autogenerada).
-- **Asincronía:** Corrutinas + StateFlow + Flow.
-- **Seguridad de credenciales:** `local.properties` + `BuildConfig` (no hardcoded, no en Git).
+- **UI:** Jetpack Compose + Material 3 (Compose puro, sin XML)
+- **Arquitectura:** MVVM con `state down, events up` (UDF)
+- **Persistencia local:** Room 2.6.1 sobre SQLite, con KSP para generación de código
+- **Cliente HTTP:** Retrofit 2.11 + OkHttp + interceptor de auth para Supabase
+- **Serialización:** kotlinx.serialization (JSON)
+- **Backend remoto:** Supabase (PostgreSQL con API REST autogenerada)
+- **Asincronía:** Corrutinas + StateFlow + Flow
+- **Seguridad de credenciales:** `local.properties` + `BuildConfig` (no hardcoded, no en Git)
 
 ---
 
@@ -49,52 +51,29 @@ El sensor es **lifecycle-aware**: la clase `AcelerometroReader` implementa `Defa
 
 La estructura está organizada por **tipo de archivo dentro de cada capa** (siguiendo SOLID), de modo que escale a varias tablas sin perder claridad:
 
-com.uade.sensores/
-
-├── data/
-
-│   ├── local/
-
-│   │   ├── database/    AppDatabase.kt
-
-│   │   ├── entities/    Measurement.kt
-
-│   │   ├── daos/        MeasurementDao.kt
-
-│   │   └── mappers/     MeasurementMapper.kt
-
-│   ├── remote/
-
-│   │   ├── api/         MeasurementApi.kt
-
-│   │   ├── dto/         MeasurementDto.kt
-
-│   │   ├── client/      RetrofitClient.kt
-
-│   │   └── mappers/     MeasurementRemoteMapper.kt
-
-│   └── repository/
-
-│       ├── MeasurementRepository.kt        (interface)
-
-│       └── MeasurementRepositoryImpl.kt    (impl híbrida offline-first)
-
-├── model/
-
-│   └── AcelerometroMedicion.kt             (modelo de dominio)
-
-├── sensor/
-
-│   └── AcelerometroReader.kt               (lifecycle-aware)
-
-└── ui/
-
-├── screen/   MainActivity.kt + ScreenSensor (Composable)
-
-├── theme/    SensoresTheme
-
-└── viewmodel/ MainViewModel.kt
-
+- **com.uade.sensores/**
+    - **data/**
+        - **local/**
+            - `database/AppDatabase.kt`
+            - `entities/Measurement.kt`
+            - `daos/MeasurementDao.kt`
+            - `mappers/MeasurementMapper.kt`
+        - **remote/**
+            - `api/MeasurementApi.kt`
+            - `dto/MeasurementDto.kt`
+            - `client/RetrofitClient.kt`
+            - `mappers/MeasurementRemoteMapper.kt`
+        - **repository/**
+            - `MeasurementRepository.kt` (interface)
+            - `MeasurementRepositoryImpl.kt` (impl híbrida offline-first)
+    - **model/**
+        - `AcelerometroMedicion.kt` (modelo de dominio)
+    - **sensor/**
+        - `AcelerometroReader.kt` (lifecycle-aware, con filtro pasa-altos)
+    - **ui/**
+        - `screen/MainActivity.kt` + `ScreenSensor` (Composable)
+        - `theme/SensoresTheme`
+        - `viewmodel/MainViewModel.kt`
 
 ### Responsabilidades por capa
 
@@ -104,56 +83,35 @@ com.uade.sensores/
 | `data/remote/` | Comunicación HTTP con Supabase: DTO, API, cliente, mappers. |
 | `data/repository/` | Único punto de acceso a datos para el resto de la app. Combina local + remoto. |
 | `model/` | Modelo de dominio puro. No conoce Room ni Retrofit. |
-| `sensor/` | Acceso al acelerómetro físico. |
+| `sensor/` | Acceso al acelerómetro físico, calibración por software. |
 | `ui/` | Pantallas, ViewModels, tema visual. |
 
 ### Por qué esta estructura
 
-Una alternativa habría sido juntar todo lo de `local/` en una sola carpeta. Funciona bien con 1 tabla, pero con 10+ tablas se vuelve inmanejable. Separar por tipo permite navegar rápido: si busco un DAO, voy a `daos/`. Si busco un Entity, voy a `entities/`. Cada archivo tiene un único motivo para cambiar (SRP).
+Una alternativa habría sido juntar todo lo de `local/` en una sola carpeta. Funciona bien con 1 tabla, pero con 10+ tablas se vuelve inmanejable. Separar por tipo permite navegar rápido: si busco un DAO, voy a `daos/`. Si busco un Entity, voy a `entities/`. Cada archivo tiene un único motivo para cambiar (SRP de SOLID).
 
 ---
 
 ## 4. Arquitectura: patrón offline-first
 
-┌─────────────────────────┐
-│    ScreenSensor (UI)    │
-└────────────┬────────────┘
+El flujo de datos sigue una pirámide unidireccional:
 
-             │ observa StateFlow
+1. **ScreenSensor (UI)** observa StateFlow del ViewModel.
+2. **MainViewModel** depende de la interface `MeasurementRepository`, no de la implementación.
+3. **MeasurementRepository (interface)** define el contrato.
+4. **MeasurementRepositoryImpl** implementa la lógica híbrida: usa Room como fuente de verdad local y Retrofit→Supabase como espejo remoto.
 
-┌────────────▼────────────┐
-
-│     MainViewModel       │
-
-└────────────┬────────────┘
-
-             │ depende de la interface
-
-┌────────────▼────────────────────┐
-
-│  MeasurementRepository (iface)  │
-
-└────────────┬────────────────────┘
-
-             │ implementa
-
-┌────────────▼─────────────────────────────┐
-
-│ MeasurementRepositoryImpl (híbrido)      │
-
-│                                          │
-
-│  ┌──────────────┐    ┌──────────────┐   │
-
-│  │ Room (local) │    │ Retrofit→API │   │
-
-│  │ FUENTE DE    │    │ Supabase     │   │
-
-│  │ VERDAD       │    │              │   │
-
-│  └──────────────┘    └──────────────┘   │
-
-└──────────────────────────────────────────┘
+```
+ScreenSensor (UI)
+    ↓ observa StateFlow
+MainViewModel
+    ↓ depende de la interface
+MeasurementRepository (iface)
+    ↓ implementa
+MeasurementRepositoryImpl
+    ├── Room (local) — fuente de verdad
+    └── Retrofit → API Supabase
+```
 
 ### Flujo de escritura (`guardar`)
 
@@ -167,6 +125,21 @@ Una alternativa habría sido juntar todo lo de `local/` en una sola carpeta. Fun
 1. **PUSH:** se buscan las mediciones con `pending_sync = 1` y se reintentan subir.
 2. **PULL:** se descarga el catálogo del backend y se inserta en Room con `@Upsert` (evita conflictos por id duplicado).
 
+### Calibración del sensor (filtro pasa-altos)
+
+El acelerómetro físico (`TYPE_ACCELEROMETER`) devuelve aceleración **total = movimiento + gravedad**. Con el celu en reposo marca ~9.8 m/s² constante hacia abajo.
+
+La forma profesional sería usar `TYPE_LINEAR_ACCELERATION`, un sensor virtual que Android calcula combinando acelerómetro + giroscopio. **Pero el Moto E20 no tiene giroscopio**, así que ese sensor devuelve `null`.
+
+La solución: implementar el filtro **en software** dentro de `AcelerometroReader`. Es la fórmula estándar que la documentación de Android recomienda cuando no hay sensor virtual:
+
+```
+gravedadEstimada = α × gravedadAnterior + (1 - α) × valorActual
+lineal = valorActual − gravedadEstimada
+```
+
+Con `α = 0.8`, la gravedad se actualiza lento (capta solo cambios constantes), y al restarla queda solo la aceleración lineal del movimiento del usuario. Resultado: en reposo la app marca ~0 G, no ~10 G.
+
 ### Decisiones arquitectónicas claves
 
 - **El Repository expone modelos de dominio**, nunca Entities ni DTOs. Los mappers traducen en la frontera de la capa de datos.
@@ -175,6 +148,7 @@ Una alternativa habría sido juntar todo lo de `local/` en una sola carpeta. Fun
 - **`@Upsert` en el DAO** → insert-or-update atómico, ideal para sincronización idempotente.
 - **`@Volatile` + Double-Checked Locking** en el Singleton de `AppDatabase`.
 - **`SharingStarted.WhileSubscribed(5000)`** en los StateFlow del ViewModel → para de emitir cuando nadie observa, ahorra batería.
+- **Flag `pendingSync` en la Entity** → permite saber qué mediciones todavía no llegaron al backend, esencial para retry offline.
 
 ---
 
@@ -239,7 +213,7 @@ defaultConfig {
 }
 ```
 
-Esto expone las credenciales como constantes en `BuildConfig.SUPABASE_URL` / `BuildConfig.SUPABASE_KEY`, consumibles desde `RetrofitClient`. **Las keys no aparecen en el código fuente versionado.**
+Esto expone las credenciales como constantes en `BuildConfig.SUPABASE_URL` y `BuildConfig.SUPABASE_KEY`, consumibles desde `RetrofitClient`. **Las keys no aparecen en el código fuente versionado.**
 
 ### Tabla `measurements` en Supabase
 
@@ -272,11 +246,13 @@ Problemas reales encontrados durante el desarrollo y cómo se resolvieron:
 |---|---|---|
 | `Property delegate must have a getValue...` al usar `by viewModel.medicion` | El ViewModel usaba `LiveData`, incompatible con Compose. | Migrar a `MutableState<T>` (idiomático de Compose). |
 | `Class referenced in the manifest... was not found` | `import kotlin.getValue` inválido inyectado por autocomplete; Activity mezclaba Views y Compose. | Reescribir `MainActivity` en Compose puro, eliminar el import roto. |
-| `InternalSerializationApi` opt-in en MeasurementDto | El plugin de `kotlin-serialization` se aplica pero el IDE marca uso de API interna. | `@OptIn(InternalSerializationApi::class)` sobre la `data class` + `-opt-in=…` en `kotlinOptions.freeCompilerArgs`. |
+| `InternalSerializationApi` opt-in en `MeasurementDto` | El plugin de `kotlin-serialization` se aplica pero el IDE marca uso de API interna. | `@OptIn(InternalSerializationApi::class)` sobre la `data class` + `-opt-in=…` en `kotlinOptions.freeCompilerArgs`. |
 | `Expected URL scheme but no scheme found for sb_pub…` | URL y KEY invertidas en `local.properties`. | Invertir las dos líneas + agregar `require(url.startsWith("https://"))` en `RetrofitClient` para fallar temprano con mensaje claro. |
-| `404 / PGRST125: Invalid path specified` con URL duplicada `/rest/v1/rest/v1/…` | El endpoint en `MeasurementApi` y la `BASE_URL` ambos contenían `/rest/v1/`. | Dejar `/rest/v1/` solo en `BASE_URL` (con `trimEnd('/')`), endpoints relativos: `@GET("measurements")`. |
-| Android Studio cancela el `Run` con `CancellationException` | Daemon de Gradle colgado entre sesiones. | `./gradlew --stop` + Invalidate Caches → relanzar. |
+| `404 / PGRST125: Invalid path specified` con URL duplicada `/rest/v1/rest/v1/…` | El endpoint en `MeasurementApi` y la `BASE_URL` ambos contenían `/rest/v1/`. | Dejar `/rest/v1/` solo en `BASE_URL` (con `trimEnd('/')`), endpoints relativos como `@GET("measurements")`. |
+| Android Studio cancela el `Run` con `CancellationException` | Daemon de Gradle colgado entre sesiones. | `./gradlew --stop` + Invalidate Caches → relanzar. Como alternativa, `./gradlew installDebug` desde terminal. |
 | `Could not resolve` al fijar versiones | Conflictos por `configurations.all { force(...) }`. | Mantener `force` solo para `androidx.core`, `lifecycle-runtime` y `startup-runtime`. |
+| `TYPE_LINEAR_ACCELERATION no disponible en este device` | El Moto E20 no tiene giroscopio, así que Android no puede calcular el sensor virtual. | Implementar filtro pasa-altos manual sobre `TYPE_ACCELEROMETER` con α=0.8 para descontar la gravedad por software. |
+| Mediciones duplicadas en el historial al sincronizar | El PULL desde Supabase reinserta filas en Room con `id` local distinto al `id` remoto. | Pendiente: agregar columna `remote_id` separada del `id` local. |
 
 ---
 
@@ -284,10 +260,11 @@ Problemas reales encontrados durante el desarrollo y cómo se resolvieron:
 
 Mejoras identificadas pero aún no implementadas:
 
-1. **Calibración del sensor:** las mediciones registradas con el celular en reposo sobre la mesa marcan G≈10 (correcto: es la gravedad). Hay que restar el vector gravedad para que `fuerzaG` represente movimiento neto, no aceleración total.
-2. **Duplicación en el PULL:** al sincronizar, las mediciones que ya existen localmente se vuelven a insertar como filas nuevas porque el id local y el id remoto son distintos. Solución pendiente: agregar columna `remote_id` separada del `id` local.
-3. **Sincronización automática:** hoy es manual (botón). Puede dispararse al volver la conectividad usando `WorkManager` o un listener de `ConnectivityManager`.
-4. **Estado de error visible en la UI:** hoy los errores de red solo van a Logcat. Convendría exponerlos al usuario como un Snackbar o ícono.
+1. **Duplicación en el PULL:** al sincronizar, las mediciones que ya existen localmente se vuelven a insertar como filas nuevas porque el id local y el id remoto son distintos. Solución: agregar columna `remote_id` separada del `id` local y deduplicar por ese campo.
+2. **Sincronización automática:** hoy es manual (botón). Puede dispararse al volver la conectividad usando `WorkManager` o un listener de `ConnectivityManager`.
+3. **Estado de error visible en la UI:** hoy los errores de red solo van a Logcat. Convendría exponerlos al usuario como un Snackbar o ícono.
+4. **Confirmación al limpiar historial:** el botón "Clean local history" hoy borra sin preguntar. Sumar un `AlertDialog` de confirmación es buena práctica para acciones destructivas.
+5. **Calibración inicial:** durante los primeros 2 segundos tras abrir la app, el filtro pasa-altos todavía está convergiendo a la gravedad real. Bloquear el guardado durante ese periodo evitaría falsos positivos.
 
 ---
 
@@ -299,7 +276,15 @@ Mejoras identificadas pero aún no implementadas:
 4. Conectar un celular físico o levantar un emulador con sensor virtual.
 5. Build → Run.
 
-Para test rápido: en el celu, mover bruscamente el dispositivo. Las mediciones con G > 15 aparecen en el historial. Tocar **"Sync with Supabase"** → revisar el dashboard de Supabase para confirmar.
+### Test rápido
+
+- Apoyar el celu sobre la mesa → `fuerzaG` cerca de 0 G, no se guardan mediciones.
+- Sacudirlo bruscamente una vez → aparece una medición en el historial.
+- Tocar **"Sync with Supabase"** → revisar el dashboard de Supabase: la medición debe aparecer ahí.
+- Tocar **"Clean local history"** → el historial vuelve a 0 en Room (Supabase no se toca).
+- Tocar **"Sync with Supabase"** otra vez → el PULL trae lo que está en Supabase y vuelve a poblar Room.
+
+Ese último flujo demuestra el patrón **Supabase como fuente de verdad cloud + Room como cache local**.
 
 ---
 
@@ -307,4 +292,4 @@ Para test rápido: en el celu, mover bruscamente el dispositivo. Las mediciones 
 
 - Cátedra: Desarrollo de Aplicaciones I — UADE
 - Apuntes y clase del 28/05/2026 como base conceptual.
-- Construido con la guía de un tutor IA siguiendo el patrón _pregunta/analogía/bajo el capó/riesgo/snippet_ para fijar cada decisión técnica.
+- Construido con la guía de un tutor IA siguiendo el patrón _analogía/bajo el capó/riesgo/snippet_ para fijar cada decisión técnica.
